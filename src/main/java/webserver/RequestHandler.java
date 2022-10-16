@@ -1,5 +1,7 @@
 package webserver;
 
+import static util.HttpRequestUtils.parseQueryString;
+
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -11,11 +13,15 @@ import java.net.Socket;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import model.User;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import util.HttpRequestUtils;
+import util.HttpRequestUtils.Pair;
+import util.IOUtils;
 
 public class RequestHandler extends Thread {
     public static final StringBuffer STRING_BUFFER = new StringBuffer();
@@ -37,23 +43,23 @@ public class RequestHandler extends Thread {
             BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(in));
 
             //요청 전문
-            String request = requestReader(bufferedReader);
+            String requestHeader = getRequestHeader(bufferedReader);
 
-            //url
-            String url = getUrl(request);
+            String url = getUrl(requestHeader);
+            String requestPath = hasQueryParams(url) ? url.substring(0, url.indexOf("?")) : url;
+            String requestMethod = getRequestMethod(requestHeader);
+            List<Pair> requestHeaderValue = getRequestHeaderValue(requestHeader);
 
-            String requestPath = url;
+            Map<String, String> queryParamMap = requestMethod.equals("GET") && hasQueryParams(url) ?
+                    parseQueryString(url.substring(url.indexOf("?") + 1)) : null;
 
-            if (hasQueryParams(url.indexOf("?"))) {
-                requestPath = url.substring(0, url.indexOf("?"));
-                Map<String, String> queryParamMap = HttpRequestUtils.parseQueryString(
-                        url.substring(url.indexOf("?") + 1));
+            String requestBody = requestMethod.equals("POST") ?
+                    IOUtils.readData(bufferedReader, getContentLength(requestHeaderValue)) : "";
 
-                if (requestPath.equals("/user/create")) {
-                    User user = mapToUser(queryParamMap);
-                    log.info("/user/create - {}", user);
-                }
+            if (requestMethod.equals("POST") && requestPath.equals("/user/create")) {
+                User user = mapToUser(parseQueryString(requestBody));
             }
+
 
             byte[] body = getHtmlFileFromUrlToByte(requestPath);
 
@@ -64,13 +70,23 @@ public class RequestHandler extends Thread {
         }
     }
 
-    private boolean hasQueryParams(int index) {
-        return index != -1;
+    private int getContentLength(List<Pair> requestHeaderValue) {
+        return Integer.parseInt(requestHeaderValue.stream()
+                .filter(p -> p.getKey().equals("Content-Length"))
+                .findFirst()
+                .map(Pair::getValue)
+                .orElse(""));
+    }
+
+    private boolean hasQueryParams(String url) {
+        return url.contains("?");
     }
 
     private User mapToUser(Map<String, String> userMap) {
-        return new User(userMap.get("userId"), userMap.get("password"), userMap.get("name"),
+        User user = new User(userMap.get("userId"), userMap.get("password"), userMap.get("name"),
                 userMap.get("email"));
+        log.debug(user.toString());
+        return user;
     }
 
     private byte[] getHtmlFileFromUrlToByte(String url) throws IOException {
@@ -84,12 +100,27 @@ public class RequestHandler extends Thread {
         return body;
     }
 
+    private String getRequestMethod(String requestHeader) {
+        String[] tokens = requestHeader.split("\n")[0].split(" ");
+        return tokens[0];
+    }
+
     private String getUrl(String request) {
-        String[] tokens = request.split(" ");
+        String[] tokens = request.split("\n")[0].split(" ");
         return tokens[1].equals("") || tokens[1].equals("/") ? "" : tokens[1];
     }
 
-    private String requestReader(BufferedReader bufferedReader) throws IOException {
+
+    private List<Pair> getRequestHeaderValue(String requestHeader) {
+        String[] tokens = requestHeader.split("\n");
+        List<Pair> pairs = new ArrayList<>();
+        for (int i = 1; i < tokens.length; i++) {
+            pairs.add(HttpRequestUtils.parseHeader(tokens[i]));
+        }
+        return pairs;
+    }
+
+    private String getRequestHeader(BufferedReader bufferedReader) throws IOException {
         STRING_BUFFER.setLength(0);
         try {
             String line = bufferedReader.readLine();
@@ -104,7 +135,7 @@ public class RequestHandler extends Thread {
         } catch (IOException e) {
             log.error(e.getMessage());
         }
-
+        log.debug(STRING_BUFFER.toString());
         return STRING_BUFFER.toString();
     }
 
