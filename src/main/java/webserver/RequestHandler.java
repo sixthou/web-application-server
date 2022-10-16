@@ -11,8 +11,11 @@ import java.net.Socket;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.Map;
+import model.User;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import util.HttpRequestUtils;
 
 public class RequestHandler extends Thread {
     public static final StringBuffer STRING_BUFFER = new StringBuffer();
@@ -33,16 +36,41 @@ public class RequestHandler extends Thread {
             DataOutputStream dos = new DataOutputStream(out);
             BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(in));
 
+            //요청 전문
             String request = requestReader(bufferedReader);
+
+            //url
             String url = getUrl(request);
 
-            byte[] body = getHtmlFileFromUrlToByte(url);
+            String requestPath = url;
+
+            if (hasQueryParams(url.indexOf("?"))) {
+                requestPath = url.substring(0, url.indexOf("?"));
+                Map<String, String> queryParamMap = HttpRequestUtils.parseQueryString(
+                        url.substring(url.indexOf("?") + 1));
+
+                if (requestPath.equals("/user/create")) {
+                    User user = mapToUser(queryParamMap);
+                    log.info("/user/create - {}", user);
+                }
+            }
+
+            byte[] body = getHtmlFileFromUrlToByte(requestPath);
 
             response200Header(dos, body.length);
             responseBody(dos, body);
         } catch (IOException e) {
             log.error(e.getMessage());
         }
+    }
+
+    private boolean hasQueryParams(int index) {
+        return index != -1;
+    }
+
+    private User mapToUser(Map<String, String> userMap) {
+        return new User(userMap.get("userId"), userMap.get("password"), userMap.get("name"),
+                userMap.get("email"));
     }
 
     private byte[] getHtmlFileFromUrlToByte(String url) throws IOException {
