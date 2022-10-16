@@ -27,7 +27,7 @@
 - HTTP body 값을 추출한다.
 
 ### 요구사항 4 - redirect 방식으로 이동
-* 
+- index.html로 리다이렉트
 
 ### 요구사항 5 - cookie
 * 
