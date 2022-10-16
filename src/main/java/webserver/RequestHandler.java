@@ -2,6 +2,7 @@ package webserver;
 
 import static util.HttpRequestUtils.parseQueryString;
 
+import db.DataBase;
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -16,6 +17,7 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import model.User;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,7 +47,7 @@ public class RequestHandler extends Thread {
 
             //요청 전문
             String requestHeader = getRequestHeader(bufferedReader);
-
+            String customHeader = "";
             String url = getUrl(requestHeader);
             String requestPath = hasQueryParams(url) ? url.substring(0, url.indexOf("?")) : url;
             String requestMethod = getRequestMethod(requestHeader);
@@ -57,14 +59,35 @@ public class RequestHandler extends Thread {
             String requestBody = requestMethod.equals("POST") ?
                     IOUtils.readData(bufferedReader, getContentLength(requestHeaderValue)) : "";
 
+            Map<String, String> bodyParamMap = parseQueryString(requestBody);
+
+            log.debug("requestBody -{}", requestBody);
+
             if (requestMethod.equals("POST") && requestPath.equals("/user/create")) {
-                User user = mapToUser(parseQueryString(requestBody));
+                DataBase.addUser(mapToUser(bodyParamMap));
+                customHeader = "Set-Cookie: logined=true\r\n" + "Location: /index.html\n\r\n";
                 responseCode = 302;
+
+            }
+
+            if (requestMethod.equals("POST") && requestPath.equals("/user/login")) {
+                String userId = bodyParamMap.get("userId");
+                String password = bodyParamMap.get("password");
+                Optional<User> user = Optional.ofNullable(DataBase.findUserById(userId));
+
+                if (user.isPresent() && user.get().getPassword().equals(password)) {
+                    customHeader = "Set-Cookie: logined=true\r\n" + "Location: /index.html\n\r\n";
+                    responseCode = 302;
+                } else {
+                    customHeader = "Set-Cookie: logined=false\r\n" + "Location: /login_failed.html\n\r\n";
+                    responseCode = 302;
+                }
+
             }
 
             byte[] body = getHtmlFileFromUrlToByte(requestPath);
 
-            responseCodeHeader(dos, body.length, responseCode);
+            responseCodeHeader(dos, body.length, responseCode, customHeader);
             responseBody(dos, body);
         } catch (IOException e) {
             log.error(e.getMessage());
@@ -140,28 +163,24 @@ public class RequestHandler extends Thread {
         return STRING_BUFFER.toString();
     }
 
-    private void response200Header(DataOutputStream dos, int lengthOfBodyContent) {
-        try {
-            dos.writeBytes("HTTP/1.1 200 OK \r\n");
-            dos.writeBytes("Content-Type: text/html;charset=utf-8\r\n");
-            dos.writeBytes("Content-Length: " + lengthOfBodyContent + "\r\n");
-            dos.writeBytes("\r\n");
-        } catch (IOException e) {
-            log.error(e.getMessage());
-        }
-    }
-
-    private void responseCodeHeader(DataOutputStream dos, int lengthOfBodyContent, int responseCode) {
+    private void responseCodeHeader(DataOutputStream dos, int lengthOfBodyContent, int responseCode,
+                                    String customHeader) {
         try {
             if (responseCode == 200) {
                 dos.writeBytes("HTTP/1.1 200 OK \r\n");
                 dos.writeBytes("Content-Type: text/html;charset=utf-8\r\n");
                 dos.writeBytes("Content-Length: " + lengthOfBodyContent + "\r\n");
+                dos.writeBytes(customHeader);
                 dos.writeBytes("\r\n");
             }
             if (responseCode == 302) {
                 dos.writeBytes("HTTP/1.1 302 Found\r\n");
-                dos.writeBytes("Location: /index.html\n\r\n");
+                dos.writeBytes(customHeader);
+                dos.writeBytes("\r\n");
+            }
+            if (responseCode == 201) {
+                dos.writeBytes("HTTP/1.1 201 Created\r\n");
+                dos.writeBytes(customHeader);
                 dos.writeBytes("\r\n");
             }
         } catch (IOException e) {

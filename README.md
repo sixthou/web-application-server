@@ -30,7 +30,7 @@
 - index.html로 리다이렉트
 
 ### 요구사항 5 - cookie
-* 
+- 로그인 성공시 헤더에 Set-Cookie 담아서 보내도록.
 
 ### 요구사항 6 - stylesheet 적용
 * 
