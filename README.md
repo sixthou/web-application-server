@@ -32,8 +32,12 @@
 ### 요구사항 5 - cookie
 - 로그인 성공시 헤더에 Set-Cookie 담아서 보내도록.
 
-### 요구사항 6 - stylesheet 적용
-* 
+### 요구사항 6 - 사용자 목록 출력
+- /user/list 접근해 로그인 상태면 리스트 출력
+- 로그인 상태아니면 index.html 로 리다이렉트
+
+### 요구사항 7 - stylesheet 적용
+* /CSS 처리
 
 ### heroku 서버에 배포 후
 * 

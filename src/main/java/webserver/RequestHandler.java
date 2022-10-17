@@ -15,6 +15,7 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -26,7 +27,7 @@ import util.HttpRequestUtils.Pair;
 import util.IOUtils;
 
 public class RequestHandler extends Thread {
-    public static final StringBuffer STRING_BUFFER = new StringBuffer();
+
     private static final Logger log = LoggerFactory.getLogger(RequestHandler.class);
 
     private final Socket connection;
@@ -52,22 +53,37 @@ public class RequestHandler extends Thread {
             String requestPath = hasQueryParams(url) ? url.substring(0, url.indexOf("?")) : url;
             String requestMethod = getRequestMethod(requestHeader);
             List<Pair> requestHeaderValue = getRequestHeaderValue(requestHeader);
-
             Map<String, String> queryParamMap = requestMethod.equals("GET") && hasQueryParams(url) ?
                     parseQueryString(url.substring(url.indexOf("?") + 1)) : null;
-
             String requestBody = requestMethod.equals("POST") ?
                     IOUtils.readData(bufferedReader, getContentLength(requestHeaderValue)) : "";
+            Map<String, String> cookie = HttpRequestUtils.parseCookies(requestHeaderValue.stream()
+                    .filter(p -> p.getKey().equals("Cookie"))
+                    .map(Pair::getValue)
+                    .findFirst()
+                    .orElse(""));
 
             Map<String, String> bodyParamMap = parseQueryString(requestBody);
 
             log.debug("requestBody -{}", requestBody);
 
+            if (requestMethod.equals("GET") && requestPath.equals("/user/list")) {
+
+                boolean logined = "true".equals(cookie.get("logined"));
+
+                if (logined) {
+                    Collection<User> allUsers = DataBase.findAll();
+
+                } else {
+                    customHeader = "Location: /index.html\n\r\n";
+                    responseCode = 302;
+                }
+            }
+
             if (requestMethod.equals("POST") && requestPath.equals("/user/create")) {
                 DataBase.addUser(mapToUser(bodyParamMap));
-                customHeader = "Set-Cookie: logined=true\r\n" + "Location: /index.html\n\r\n";
+                customHeader = "Location: /index.html\n\r\n";
                 responseCode = 302;
-
             }
 
             if (requestMethod.equals("POST") && requestPath.equals("/user/login")) {
@@ -76,10 +92,10 @@ public class RequestHandler extends Thread {
                 Optional<User> user = Optional.ofNullable(DataBase.findUserById(userId));
 
                 if (user.isPresent() && user.get().getPassword().equals(password)) {
-                    customHeader = "Set-Cookie: logined=true\r\n" + "Location: /index.html\n\r\n";
+                    customHeader = "Set-Cookie: logined=true;\r\n" + "Location: /index.html\n\r\n";
                     responseCode = 302;
                 } else {
-                    customHeader = "Set-Cookie: logined=false\r\n" + "Location: /login_failed.html\n\r\n";
+                    customHeader = "Set-Cookie: logined=false;\r\n" + "Location: /user/login_failed.html\n\r\n";
                     responseCode = 302;
                 }
 
@@ -87,7 +103,7 @@ public class RequestHandler extends Thread {
 
             byte[] body = getHtmlFileFromUrlToByte(requestPath);
 
-            responseCodeHeader(dos, body.length, responseCode, customHeader);
+            responseCodeHeader(dos, body.length, responseCode, customHeader, requestPath);
             responseBody(dos, body);
         } catch (IOException e) {
             log.error(e.getMessage());
@@ -145,7 +161,8 @@ public class RequestHandler extends Thread {
     }
 
     private String getRequestHeader(BufferedReader bufferedReader) throws IOException {
-        STRING_BUFFER.setLength(0);
+        StringBuffer sb = new StringBuffer();
+        sb.setLength(0);
         try {
             String line = bufferedReader.readLine();
 
@@ -153,22 +170,29 @@ public class RequestHandler extends Thread {
                 if (line == null) {
                     break;
                 }
-                STRING_BUFFER.append(line).append("\n");
+                sb.append(line).append("\n");
                 line = bufferedReader.readLine();
             }
         } catch (IOException e) {
             log.error(e.getMessage());
         }
-        log.debug(STRING_BUFFER.toString());
-        return STRING_BUFFER.toString();
+        log.debug("getRequestHeader - {}", sb);
+        return sb.toString();
     }
 
     private void responseCodeHeader(DataOutputStream dos, int lengthOfBodyContent, int responseCode,
-                                    String customHeader) {
+                                    String customHeader, String requestUrl) {
         try {
+            String type;
+            if (requestUrl.contains("/css")) {
+                type = "css";
+            } else {
+                type = "html";
+            }
+
             if (responseCode == 200) {
                 dos.writeBytes("HTTP/1.1 200 OK \r\n");
-                dos.writeBytes("Content-Type: text/html;charset=utf-8\r\n");
+                dos.writeBytes("Content-Type: text/" + type + ";charset=utf-8\r\n");
                 dos.writeBytes("Content-Length: " + lengthOfBodyContent + "\r\n");
                 dos.writeBytes(customHeader);
                 dos.writeBytes("\r\n");
